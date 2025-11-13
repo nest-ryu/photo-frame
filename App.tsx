@@ -5,10 +5,12 @@ import Controls from './components/Controls';
 import { FolderIcon } from './components/icons';
 import { Loader } from './components/Loader';
 
-// Fix for TypeScript error: Property 'webkitDirectory' does not exist on type 'DetailedHTMLProps<InputHTMLAttributes<HTMLInputElement>, HTMLInputElement>'.
-declare module 'react' {
-  interface InputHTMLAttributes<T> {
-    webkitDirectory?: boolean;
+// Fix: Replaced `declare module 'react'` with `declare global` to correctly augment the type for `webkitDirectory` and make it globally available.
+declare global {
+  namespace React {
+    interface InputHTMLAttributes<T> {
+      webkitDirectory?: boolean;
+    }
   }
 }
 

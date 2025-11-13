@@ -14,11 +14,35 @@ const transitions: { [key: string]: string } = {
   'slide-right': 'slideRight 1.2s cubic-bezier(0.25, 1, 0.5, 1)',
 };
 
+interface AnimationConfig {
+  keyframe: string;
+  name: string;
+}
+
+// Helper to generate a random Ken Burns effect
+const generateKenBurns = (): AnimationConfig => {
+    const name = `kenburns-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
+    const scale = 1.1 + Math.random() * 0.1; // Zoom from 110% to 120%
+    
+    const endX = Math.random() * 10 - 5; // Pan between -5% to 5%
+    const endY = Math.random() * 10 - 5;
+
+    const keyframe = `
+      @keyframes ${name} {
+        0% { transform: scale(1) translate(0, 0); }
+        100% { transform: scale(${scale}) translate(${endX}%, ${endY}%); }
+      }
+    `;
+    return { keyframe, name };
+};
+
+
 const ImageDisplay: React.FC<ImageDisplayProps> = ({ imageFile, onLoad, onError, transition }) => {
   const [currentUrl, setCurrentUrl] = useState<string | null>(null);
   const [previousUrl, setPreviousUrl] = useState<string | null>(null);
+  const [kenBurnsAnim, setKenBurnsAnim] = useState<AnimationConfig | null>(null);
 
-  // Effect to create URLs and handle image loading
+  // Effect to create URLs, handle image loading, and generate animations
   useEffect(() => {
     // If there's no file, clean up everything and return.
     if (!imageFile) {
@@ -26,6 +50,7 @@ const ImageDisplay: React.FC<ImageDisplayProps> = ({ imageFile, onLoad, onError,
       if (previousUrl) URL.revokeObjectURL(previousUrl);
       setCurrentUrl(null);
       setPreviousUrl(null);
+      setKenBurnsAnim(null);
       return;
     }
 
@@ -46,6 +71,7 @@ const ImageDisplay: React.FC<ImageDisplayProps> = ({ imageFile, onLoad, onError,
       setPreviousUrl(currentUrl);
       // The newly loaded image becomes the current one.
       setCurrentUrl(newUrl);
+      setKenBurnsAnim(generateKenBurns()); // Generate new animation for new image
       onLoad();
     };
 
@@ -80,16 +106,19 @@ const ImageDisplay: React.FC<ImageDisplayProps> = ({ imageFile, onLoad, onError,
     }
   }, [previousUrl]);
 
+  const entryAnimation = previousUrl ? (transitions[transition] || transitions['fade-in']) : 'none';
+  const kenBurnsAnimation = kenBurnsAnim ? `${kenBurnsAnim.name} 25s linear forwards` : '';
+  const combinedAnimation = [entryAnimation, kenBurnsAnimation].filter(Boolean).join(', ');
 
   return (
-    <div className="absolute inset-0 flex items-center justify-center p-4">
+    <div className="absolute inset-0 flex items-center justify-center p-4 overflow-hidden">
       {/* Previous image stays in the background during the transition */}
       {previousUrl && (
         <img
           key={previousUrl}
           src={previousUrl}
           alt=""
-          className="max-w-full max-h-full object-contain absolute"
+          className="max-w-full max-h-full object-contain absolute slideshow-image"
           aria-hidden="true"
         />
       )}
@@ -99,13 +128,27 @@ const ImageDisplay: React.FC<ImageDisplayProps> = ({ imageFile, onLoad, onError,
           key={currentUrl}
           src={currentUrl}
           alt={imageFile?.name || 'Slideshow image'}
-          className="max-w-full max-h-full object-contain absolute"
+          className="max-w-full max-h-full object-contain absolute slideshow-image"
           // Only apply the animation if there was a previous image to transition from.
-          style={{ animation: previousUrl ? (transitions[transition] || transitions['fade-in']) : 'none' }}
+          style={{ animation: combinedAnimation }}
         />
       )}
       <style>
         {`
+          .slideshow-image {
+            /* Default styles for portrait or square */
+            object-fit: contain;
+          }
+          @media (orientation: landscape) {
+            .slideshow-image {
+              /* Cover the screen in landscape, zoom a bit to hide edges during pan */
+              object-fit: cover;
+              width: 120%;
+              height: 120%;
+              max-width: none;
+              max-height: none;
+            }
+          }
           @keyframes fadeIn {
             from { opacity: 0; transform: scale(0.99); }
             to { opacity: 1; transform: scale(1); }
@@ -122,6 +165,7 @@ const ImageDisplay: React.FC<ImageDisplayProps> = ({ imageFile, onLoad, onError,
             from { opacity: 0; transform: translateX(-5%); }
             to { opacity: 1; transform: translateX(0); }
           }
+          ${kenBurnsAnim ? kenBurnsAnim.keyframe : ''}
         `}
       </style>
     </div>
