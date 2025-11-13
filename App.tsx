@@ -18,14 +18,14 @@ const transitions = ['fade-in', 'zoom-in', 'slide-left', 'slide-right'];
 const getRandomTransition = () => transitions[Math.floor(Math.random() * transitions.length)];
 
 /**
- * Processes a FileList asynchronously to avoid blocking the main thread.
- * It filters for image files and returns a promise that resolves with an array of image Files.
+ * Processes a FileList asynchronously to find image files and returns their indices.
+ * This avoids storing a large array of File objects in memory.
  * @param fileList The FileList to process.
- * @returns A promise that resolves to an array of image files.
+ * @returns A promise that resolves to an array of indices corresponding to image files.
  */
-const processFilesAsync = (fileList: FileList): Promise<File[]> => {
+const processFileList = (fileList: FileList): Promise<number[]> => {
   return new Promise(resolve => {
-    const imageFiles: File[] = [];
+    const imageIndices: number[] = [];
     let i = 0;
     const chunkSize = 500; // Process 500 files at a time to prevent blocking
 
@@ -34,7 +34,7 @@ const processFilesAsync = (fileList: FileList): Promise<File[]> => {
       for (; i < chunkEnd; i++) {
         const file = fileList[i];
         if (file.type.startsWith('image/')) {
-          imageFiles.push(file);
+          imageIndices.push(i);
         }
       }
 
@@ -42,7 +42,7 @@ const processFilesAsync = (fileList: FileList): Promise<File[]> => {
         // Yield to the main thread to allow UI updates (e.g., loader animation)
         setTimeout(processChunk, 0);
       } else {
-        resolve(imageFiles);
+        resolve(imageIndices);
       }
     };
     processChunk();
@@ -51,12 +51,15 @@ const processFilesAsync = (fileList: FileList): Promise<File[]> => {
 
 
 const App: React.FC = () => {
-  const [images, setImages] = useState<File[]>([]);
+  const [imageCount, setImageCount] = useState(0);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isPlaying, setIsPlaying] = useState(true);
   const [controlsVisible, setControlsVisible] = useState(true);
   const [isLoading, setIsLoading] = useState(false);
   const [transition, setTransition] = useState(transitions[0]);
+  
+  const fileListRef = useRef<FileList | null>(null);
+  const imageIndicesRef = useRef<number[]>([]);
   const controlsTimeoutRef = useRef<number | null>(null);
   const isInitialLoad = useRef(true);
 
@@ -64,14 +67,18 @@ const App: React.FC = () => {
     const files = event.target.files;
     if (files && files.length > 0) {
       // Reset state and show loader immediately to provide feedback
-      setImages([]);
+      setImageCount(0);
+      fileListRef.current = null;
+      imageIndicesRef.current = [];
       setCurrentIndex(0);
       setIsLoading(true);
       isInitialLoad.current = true;
       
-      processFilesAsync(files).then(imageFiles => {
-        if (imageFiles.length > 0) {
-          setImages(imageFiles);
+      processFileList(files).then(indices => {
+        if (indices.length > 0) {
+          fileListRef.current = files;
+          imageIndicesRef.current = indices;
+          setImageCount(indices.length);
           setIsPlaying(true);
           // The loader will be hidden by `handleImageLoad` when the first image loads.
         } else {
@@ -106,14 +113,14 @@ const App: React.FC = () => {
   }, [resetControlsTimeout]);
 
   const handleNext = useCallback(() => {
-    if (images.length > 0) {
+    if (imageCount > 0) {
       setTransition(getRandomTransition());
-      setCurrentIndex((prevIndex) => (prevIndex + 1) % images.length);
+      setCurrentIndex((prevIndex) => (prevIndex + 1) % imageCount);
     }
-  }, [images.length]);
+  }, [imageCount]);
 
   useEffect(() => {
-    if (isPlaying && images.length > 1) {
+    if (isPlaying && imageCount > 1) {
       // Random interval between 20 seconds and 1 minute
       const randomInterval = Math.random() * (40000) + 20000; 
       const timer = setTimeout(() => {
@@ -121,15 +128,15 @@ const App: React.FC = () => {
       }, randomInterval);
       return () => clearTimeout(timer);
     }
-  }, [isPlaying, images.length, currentIndex, handleNext]);
+  }, [isPlaying, imageCount, currentIndex, handleNext]);
 
 
   const handlePrev = useCallback(() => {
-    if (images.length > 0) {
+    if (imageCount > 0) {
       setTransition(getRandomTransition());
-      setCurrentIndex((prevIndex) => (prevIndex - 1 + images.length) % images.length);
+      setCurrentIndex((prevIndex) => (prevIndex - 1 + imageCount) % imageCount);
     }
-  }, [images.length]);
+  }, [imageCount]);
 
   const togglePlayPause = useCallback(() => {
     setIsPlaying((prev) => !prev);
@@ -145,30 +152,33 @@ const App: React.FC = () => {
   }, []);
 
   const handleIndexChange = useCallback((newIndex: number) => {
-    if (images.length > 0 && newIndex !== currentIndex) {
+    if (imageCount > 0 && newIndex !== currentIndex) {
       setTransition('fade-in'); // Use a simple fade for scrubbing
       setCurrentIndex(newIndex);
     }
-  }, [images.length, currentIndex]);
+  }, [imageCount, currentIndex]);
 
   const handleExit = useCallback(() => {
-    setImages([]);
+    setImageCount(0);
+    fileListRef.current = null;
+    imageIndicesRef.current = [];
     setCurrentIndex(0);
     setIsPlaying(true); // Reset to default
     setControlsVisible(true);
     isInitialLoad.current = true; // Reset for next slideshow
   }, []);
 
+  const currentImageFile = imageCount > 0 ? (fileListRef.current?.item(imageIndicesRef.current[currentIndex]) ?? null) : null;
 
   return (
     <main className="relative w-screen h-screen bg-black text-white overflow-hidden select-none flex items-center justify-center">
-      {images.length > 0 || isLoading ? (
+      {imageCount > 0 || isLoading ? (
         <>
           {isLoading && <Loader />}
-          {images.length > 0 && (
+          {imageCount > 0 && currentImageFile && (
             <>
               <ImageDisplay 
-                imageFile={images[currentIndex]}
+                imageFile={currentImageFile}
                 onLoad={handleImageLoad}
                 onError={handleImageLoad} // Also hide loader on error
                 transition={transition}
@@ -182,7 +192,7 @@ const App: React.FC = () => {
                   onPrev={handlePrev}
                   isPlaying={isPlaying}
                   togglePlayPause={togglePlayPause}
-                  imageCount={images.length}
+                  imageCount={imageCount}
                   currentIndex={currentIndex}
                   onIndexChange={handleIndexChange}
                   onExit={handleExit}
