@@ -17,6 +17,38 @@ declare global {
 const transitions = ['fade-in', 'zoom-in', 'slide-left', 'slide-right'];
 const getRandomTransition = () => transitions[Math.floor(Math.random() * transitions.length)];
 
+/**
+ * Processes a FileList asynchronously to avoid blocking the main thread.
+ * It filters for image files and returns a promise that resolves with an array of image Files.
+ * @param fileList The FileList to process.
+ * @returns A promise that resolves to an array of image files.
+ */
+const processFilesAsync = (fileList: FileList): Promise<File[]> => {
+  return new Promise(resolve => {
+    const imageFiles: File[] = [];
+    let i = 0;
+    const chunkSize = 500; // Process 500 files at a time to prevent blocking
+
+    const processChunk = () => {
+      const chunkEnd = Math.min(i + chunkSize, fileList.length);
+      for (; i < chunkEnd; i++) {
+        const file = fileList[i];
+        if (file.type.startsWith('image/')) {
+          imageFiles.push(file);
+        }
+      }
+
+      if (i < fileList.length) {
+        // Yield to the main thread to allow UI updates (e.g., loader animation)
+        setTimeout(processChunk, 0);
+      } else {
+        resolve(imageFiles);
+      }
+    };
+    processChunk();
+  });
+};
+
 
 const App: React.FC = () => {
   const [images, setImages] = useState<File[]>([]);
@@ -29,17 +61,24 @@ const App: React.FC = () => {
   const isInitialLoad = useRef(true);
 
   const handleFilesSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
-    if (event.target.files) {
-      const fileList = Array.from(event.target.files);
-      // Fix: Explicitly type `file` as `File` to resolve TypeScript error where `file` was inferred as `unknown`.
-      const imageFiles = fileList.filter((file: File) => file.type.startsWith('image/'));
-      if (imageFiles.length > 0) {
-        setImages(imageFiles);
-        setCurrentIndex(0);
-        setIsPlaying(true);
-        setIsLoading(true); // Show loader only for the first image of the slideshow
-        isInitialLoad.current = true;
-      }
+    const files = event.target.files;
+    if (files && files.length > 0) {
+      // Reset state and show loader immediately to provide feedback
+      setImages([]);
+      setCurrentIndex(0);
+      setIsLoading(true);
+      isInitialLoad.current = true;
+      
+      processFilesAsync(files).then(imageFiles => {
+        if (imageFiles.length > 0) {
+          setImages(imageFiles);
+          setIsPlaying(true);
+          // The loader will be hidden by `handleImageLoad` when the first image loads.
+        } else {
+          // No images found, hide loader and stay on the welcome screen
+          setIsLoading(false);
+        }
+      });
     }
   };
 
@@ -75,8 +114,8 @@ const App: React.FC = () => {
 
   useEffect(() => {
     if (isPlaying && images.length > 1) {
-      // Random interval between 10 and 30 seconds
-      const randomInterval = Math.random() * (20000) + 10000; 
+      // Random interval between 20 seconds and 1 minute
+      const randomInterval = Math.random() * (40000) + 20000; 
       const timer = setTimeout(() => {
         handleNext();
       }, randomInterval);
@@ -123,30 +162,34 @@ const App: React.FC = () => {
 
   return (
     <main className="relative w-screen h-screen bg-black text-white overflow-hidden select-none flex items-center justify-center">
-      {images.length > 0 ? (
+      {images.length > 0 || isLoading ? (
         <>
           {isLoading && <Loader />}
-          <ImageDisplay 
-            imageFile={images[currentIndex]}
-            onLoad={handleImageLoad}
-            onError={handleImageLoad} // Also hide loader on error
-            transition={transition}
-          />
-          <div 
-            className={`absolute bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-black/70 via-black/50 to-transparent transition-opacity duration-500 ${controlsVisible ? 'opacity-100' : 'opacity-0'}`}
-          >
-            <Controls
-              onFilesSelect={handleFilesSelect}
-              onNext={handleNext}
-              onPrev={handlePrev}
-              isPlaying={isPlaying}
-              togglePlayPause={togglePlayPause}
-              imageCount={images.length}
-              currentIndex={currentIndex}
-              onIndexChange={handleIndexChange}
-              onExit={handleExit}
-            />
-          </div>
+          {images.length > 0 && (
+            <>
+              <ImageDisplay 
+                imageFile={images[currentIndex]}
+                onLoad={handleImageLoad}
+                onError={handleImageLoad} // Also hide loader on error
+                transition={transition}
+              />
+              <div 
+                className={`absolute bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-black/70 via-black/50 to-transparent transition-opacity duration-500 ${controlsVisible ? 'opacity-100' : 'opacity-0'}`}
+              >
+                <Controls
+                  onFilesSelect={handleFilesSelect}
+                  onNext={handleNext}
+                  onPrev={handlePrev}
+                  isPlaying={isPlaying}
+                  togglePlayPause={togglePlayPause}
+                  imageCount={images.length}
+                  currentIndex={currentIndex}
+                  onIndexChange={handleIndexChange}
+                  onExit={handleExit}
+                />
+              </div>
+            </>
+          )}
         </>
       ) : (
         <div className="text-center">
@@ -164,6 +207,7 @@ const App: React.FC = () => {
               multiple
               onChange={handleFilesSelect}
               className="hidden"
+              onClick={(e) => ((e.target as HTMLInputElement).value = '')}
             />
         </div>
       )}

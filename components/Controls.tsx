@@ -56,6 +56,7 @@ const Controls: React.FC<ControlsProps> = ({
               multiple
               onChange={onFilesSelect}
               className="hidden"
+              onClick={(e) => ((e.target as HTMLInputElement).value = '')}
             />
             <span className="text-sm font-mono text-gray-400">
               {currentIndex + 1} / {imageCount}

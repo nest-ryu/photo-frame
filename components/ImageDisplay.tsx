@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 
 interface ImageDisplayProps {
   imageFile: File | null;
@@ -7,11 +7,12 @@ interface ImageDisplayProps {
   transition: string;
 }
 
-const transitions: { [key: string]: string } = {
-  'fade-in': 'fadeIn 1s ease-in-out',
-  'zoom-in': 'zoomIn 1.2s ease-out',
-  'slide-left': 'slideLeft 1.2s cubic-bezier(0.25, 1, 0.5, 1)',
-  'slide-right': 'slideRight 1.2s cubic-bezier(0.25, 1, 0.5, 1)',
+// Updated transitions to include duration for sequencing animations.
+const transitions: { [key: string]: { animation: string; duration: number } } = {
+  'fade-in': { animation: 'fadeIn 1s ease-in-out', duration: 1000 },
+  'zoom-in': { animation: 'zoomIn 1.2s ease-out', duration: 1200 },
+  'slide-left': { animation: 'slideLeft 1.2s cubic-bezier(0.25, 1, 0.5, 1)', duration: 1200 },
+  'slide-right': { animation: 'slideRight 1.2s cubic-bezier(0.25, 1, 0.5, 1)', duration: 1200 },
 };
 
 interface AnimationConfig {
@@ -41,6 +42,24 @@ const ImageDisplay: React.FC<ImageDisplayProps> = ({ imageFile, onLoad, onError,
   const [currentUrl, setCurrentUrl] = useState<string | null>(null);
   const [previousUrl, setPreviousUrl] = useState<string | null>(null);
   const [kenBurnsAnim, setKenBurnsAnim] = useState<AnimationConfig | null>(null);
+
+  // Create a ref to hold the current and previous URLs. This ensures the unmount cleanup has the latest values.
+  const urlRef = useRef({ currentUrl, previousUrl });
+  urlRef.current = { currentUrl, previousUrl };
+
+  // Effect to clean up any lingering object URLs when the component unmounts.
+  // This is a crucial fix to prevent memory leaks.
+  useEffect(() => {
+    return () => {
+      const { currentUrl: lastCurrent, previousUrl: lastPrevious } = urlRef.current;
+      if (lastCurrent) {
+        URL.revokeObjectURL(lastCurrent);
+      }
+      if (lastPrevious) {
+        URL.revokeObjectURL(lastPrevious);
+      }
+    };
+  }, []); // Empty dependency array ensures this runs only on mount and unmount.
 
   // Effect to create URLs, handle image loading, and generate animations
   useEffect(() => {
@@ -92,22 +111,26 @@ const ImageDisplay: React.FC<ImageDisplayProps> = ({ imageFile, onLoad, onError,
     // The old `currentUrl` is correctly captured in the closure for `setPreviousUrl`.
   }, [imageFile, onLoad, onError]);
 
-  // Effect to clean up the `previousUrl` after the animation has finished.
+  // Effect to clean up the `previousUrl` after it's no longer needed.
+  // This is more robust than a timeout. It revokes the URL of the *last*
+  // `previousUrl` right before the *next* one is used (or on unmount).
+  // This ensures the resource is freed only after it's no longer visible.
   useEffect(() => {
-    if (previousUrl) {
-      const urlToRevoke = previousUrl;
-      // After the animation, revoke the URL for the previous image.
-      // We don't use a cleanup function here, so that even if the user scrubs
-      // quickly, the timeout for each previous image will still fire and
-      // revoke its URL, preventing memory leaks.
-      setTimeout(() => {
+    const urlToRevoke = previousUrl;
+    return () => {
+      if (urlToRevoke) {
         URL.revokeObjectURL(urlToRevoke);
-      }, 1200); // Should match animation duration
-    }
+      }
+    };
   }, [previousUrl]);
 
-  const entryAnimation = previousUrl ? (transitions[transition] || transitions['fade-in']) : 'none';
-  const kenBurnsAnimation = kenBurnsAnim ? `${kenBurnsAnim.name} 25s linear forwards` : '';
+  const transitionConfig = previousUrl ? (transitions[transition] || transitions['fade-in']) : null;
+  const entryAnimation = transitionConfig ? transitionConfig.animation : null;
+  const entryDurationSeconds = transitionConfig ? (transitionConfig.duration / 1000) : 0;
+  
+  // The Ken Burns effect is delayed to start after the entry transition finishes to prevent visual glitches.
+  const kenBurnsAnimation = kenBurnsAnim ? `${kenBurnsAnim.name} 25s linear ${entryDurationSeconds}s forwards` : null;
+
   const combinedAnimation = [entryAnimation, kenBurnsAnimation].filter(Boolean).join(', ');
 
   return (
@@ -129,8 +152,8 @@ const ImageDisplay: React.FC<ImageDisplayProps> = ({ imageFile, onLoad, onError,
           src={currentUrl}
           alt={imageFile?.name || 'Slideshow image'}
           className="max-w-full max-h-full object-contain absolute slideshow-image"
-          // Only apply the animation if there was a previous image to transition from.
-          style={{ animation: combinedAnimation }}
+          // Only apply the animation if there's a possibility for one.
+          style={combinedAnimation ? { animation: combinedAnimation } : {}}
         />
       )}
       <style>
