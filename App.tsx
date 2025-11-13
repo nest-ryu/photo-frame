@@ -5,6 +5,13 @@ import Controls from './components/Controls';
 import { FolderIcon } from './components/icons';
 import { Loader } from './components/Loader';
 
+// Fix for TypeScript error: Property 'webkitDirectory' does not exist on type 'DetailedHTMLProps<InputHTMLAttributes<HTMLInputElement>, HTMLInputElement>'.
+declare module 'react' {
+  interface InputHTMLAttributes<T> {
+    webkitDirectory?: boolean;
+  }
+}
+
 const transitions = ['fade-in', 'zoom-in', 'slide-left', 'slide-right'];
 const getRandomTransition = () => transitions[Math.floor(Math.random() * transitions.length)];
 
@@ -66,8 +73,8 @@ const App: React.FC = () => {
 
   useEffect(() => {
     if (isPlaying && images.length > 1) {
-      // Random interval between 5 and 30 seconds
-      const randomInterval = Math.random() * (30000 - 5000) + 5000; 
+      // Random interval between 10 and 30 seconds
+      const randomInterval = Math.random() * (20000) + 10000; 
       const timer = setTimeout(() => {
         handleNext();
       }, randomInterval);

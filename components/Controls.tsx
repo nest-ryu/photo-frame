@@ -2,6 +2,13 @@
 import React from 'react';
 import { PlayIcon, PauseIcon, NextIcon, PrevIcon, FolderOpenIcon, ExitIcon } from './icons';
 
+// Fix for TypeScript error: Property 'webkitDirectory' does not exist on type 'DetailedHTMLProps<InputHTMLAttributes<HTMLInputElement>, HTMLInputElement>'.
+declare module 'react' {
+  interface InputHTMLAttributes<T> {
+    webkitDirectory?: boolean;
+  }
+}
+
 interface ControlsProps {
   onFilesSelect: (event: React.ChangeEvent<HTMLInputElement>) => void;
   onNext: () => void;

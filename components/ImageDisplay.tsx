@@ -1,5 +1,4 @@
-
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 
 interface ImageDisplayProps {
   imageFile: File | null;
@@ -16,73 +15,95 @@ const transitions: { [key: string]: string } = {
 };
 
 const ImageDisplay: React.FC<ImageDisplayProps> = ({ imageFile, onLoad, onError, transition }) => {
-  const [displayUrl, setDisplayUrl] = useState<string | null>(null);
-  const [key, setKey] = useState(0);
-  const [currentTransition, setCurrentTransition] = useState(transition);
-  
-  // This ref holds the URL that is currently visible so we can revoke it later.
-  const activeUrlRef = useRef<string | null>(null);
+  const [currentUrl, setCurrentUrl] = useState<string | null>(null);
+  const [previousUrl, setPreviousUrl] = useState<string | null>(null);
 
+  // Effect to create URLs and handle image loading
   useEffect(() => {
+    // If there's no file, clean up everything and return.
     if (!imageFile) {
-      if(activeUrlRef.current) {
-        URL.revokeObjectURL(activeUrlRef.current);
-        activeUrlRef.current = null;
-      }
-      setDisplayUrl(null);
+      if (currentUrl) URL.revokeObjectURL(currentUrl);
+      if (previousUrl) URL.revokeObjectURL(previousUrl);
+      setCurrentUrl(null);
+      setPreviousUrl(null);
       return;
     }
 
+    let isStale = false;
     const newUrl = URL.createObjectURL(imageFile);
     const img = new Image();
     img.src = newUrl;
 
     img.onload = () => {
-      // The new image is loaded, so we can now revoke the old URL.
-      if (activeUrlRef.current) {
-        URL.revokeObjectURL(activeUrlRef.current);
+      // If a new image was selected before this one finished loading,
+      // don't update the state, just clean up the URL to prevent a memory leak.
+      if (isStale) {
+        URL.revokeObjectURL(newUrl);
+        return;
       }
-      // The new URL becomes the active one.
-      activeUrlRef.current = newUrl;
       
-      // Update state to render the new image and trigger the animation.
-      setDisplayUrl(newUrl);
-      setCurrentTransition(transition);
-      setKey(k => k + 1);
+      // The current URL will become the previous one for the transition out.
+      setPreviousUrl(currentUrl);
+      // The newly loaded image becomes the current one.
+      setCurrentUrl(newUrl);
       onLoad();
     };
 
     img.onerror = () => {
-      URL.revokeObjectURL(newUrl); // clean up failed load
-      onError();
-    };
-
-  }, [imageFile, onLoad, onError, transition]);
-
-  // Cleanup on component unmount.
-  useEffect(() => {
-    return () => {
-      if (activeUrlRef.current) {
-        URL.revokeObjectURL(activeUrlRef.current);
+      // Clean up the URL if the image fails to load.
+      URL.revokeObjectURL(newUrl);
+      if (!isStale) {
+        onError();
       }
     };
-  }, []);
 
-  if (!displayUrl) {
-    return null;
-  }
+    // The cleanup function marks this effect run as stale.
+    // This prevents race conditions if the user changes images quickly.
+    return () => {
+      isStale = true;
+    };
+    // We remove `currentUrl` from the dependency array to prevent a re-render loop.
+    // The old `currentUrl` is correctly captured in the closure for `setPreviousUrl`.
+  }, [imageFile, onLoad, onError]);
+
+  // Effect to clean up the `previousUrl` after the animation has finished.
+  useEffect(() => {
+    if (previousUrl) {
+      const urlToRevoke = previousUrl;
+      // After the animation, revoke the URL for the previous image.
+      // We don't use a cleanup function here, so that even if the user scrubs
+      // quickly, the timeout for each previous image will still fire and
+      // revoke its URL, preventing memory leaks.
+      setTimeout(() => {
+        URL.revokeObjectURL(urlToRevoke);
+      }, 1200); // Should match animation duration
+    }
+  }, [previousUrl]);
+
 
   return (
     <div className="absolute inset-0 flex items-center justify-center p-4">
-      <img
-        key={key} // Force re-render for animation
-        src={displayUrl}
-        alt={imageFile?.name || 'Slideshow image'}
-        className="max-w-full max-h-full object-contain"
-        style={{
-          animation: transitions[currentTransition] || transitions['fade-in'],
-        }}
-      />
+      {/* Previous image stays in the background during the transition */}
+      {previousUrl && (
+        <img
+          key={previousUrl}
+          src={previousUrl}
+          alt=""
+          className="max-w-full max-h-full object-contain absolute"
+          aria-hidden="true"
+        />
+      )}
+      {/* Current image animates in on top */}
+      {currentUrl && (
+        <img
+          key={currentUrl}
+          src={currentUrl}
+          alt={imageFile?.name || 'Slideshow image'}
+          className="max-w-full max-h-full object-contain absolute"
+          // Only apply the animation if there was a previous image to transition from.
+          style={{ animation: previousUrl ? (transitions[transition] || transitions['fade-in']) : 'none' }}
+        />
+      )}
       <style>
         {`
           @keyframes fadeIn {
